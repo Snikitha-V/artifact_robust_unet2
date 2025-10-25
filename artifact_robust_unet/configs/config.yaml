@@ -1,0 +1,17 @@
+data:
+  dataset_dir: "C:\\Users\\student\\Desktop\\artifact_robust_unet\\database"
+  image_size: [256, 256]
+
+model:
+  in_channels: 1
+  num_classes: 4
+
+train:
+  batch_size: 4
+  epochs: 2
+  lr: 0.001
+
+artifacts:
+  enabled: true
+  prob: 0.8
+  severity: 0.3  # scales noise/bias/motion strengths

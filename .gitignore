@@ -1,0 +1,19 @@
+# Python
+__pycache__/
+*.pyc
+
+# Runs and logs
+runs/
+logs/
+checkpoints/
+
+# Data
+data/
+database/
+*.nii
+*.nii.gz
+
+# OS/IDE
+.vscode/
+.idea/
+*.swp
