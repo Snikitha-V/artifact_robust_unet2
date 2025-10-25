@@ -5,11 +5,12 @@ import json
 from pathlib import Path
 from typing import Optional
 
-import torch
+import torch as th
 import torch.nn as nn
 from torch.utils.data import DataLoader, random_split
 from torch.optim import AdamW
 from torch.amp import GradScaler, autocast
+import os
 
 from ..models import UNet, AttentionUNet
 from ..data.acdc_dataset import ACDCSliceDataset
@@ -66,20 +67,22 @@ def main():
     train_loader = DataLoader(train_ds, batch_size=args.batch_size, shuffle=True, num_workers=args.num_workers, pin_memory=True, persistent_workers=bool(args.num_workers))
     val_loader = DataLoader(val_ds, batch_size=args.batch_size, shuffle=False, num_workers=args.num_workers, pin_memory=True, persistent_workers=bool(args.num_workers))
 
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    device = th.device("cuda" if th.cuda.is_available() else "cpu")
     if device.type == "cuda":
-        torch.backends.cudnn.benchmark = True
+        th.backends.cudnn.benchmark = True
     model = build_model(args.model, in_ch, num_classes).to(device)
     optimizer = AdamW(model.parameters(), lr=args.lr)
     criterion = CombinedLoss()
     scaler = GradScaler(enabled=(device.type == "cuda"))
     # Optional: compile the model for better GPU utilization (PyTorch 2.x)
-    try:
-        import torch._dynamo  # noqa: F401
-        if getattr(torch, "compile", None):
-            model = torch.compile(model)
-    except Exception:
-        pass
+    # Disabled by default on Windows due to Triton/Inductor requirements; enable by setting ENABLE_TORCH_COMPILE=1
+    enable_compile = os.environ.get("ENABLE_TORCH_COMPILE", "0") == "1"
+    if enable_compile and getattr(th, "compile", None):
+        try:
+            model = th.compile(model)
+        except Exception:
+            # Fall back to eager if compilation fails
+            pass
 
     out_dir = Path(args.output_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -106,7 +109,7 @@ def main():
         # validation
         model.eval()
         dices = []
-        with torch.no_grad():
+        with th.no_grad():
             for v_idx, (imgs, labels) in enumerate(val_loader, start=1):
                 imgs = imgs.to(device, non_blocking=True)
                 labels = labels.to(device, non_blocking=True)
@@ -114,14 +117,14 @@ def main():
                 dices.append(batch_dice(logits, labels))
                 if args.max_val_batches and v_idx >= args.max_val_batches:
                     break
-        mean_dice = float(torch.stack(dices).mean().item()) if dices else 0.0
+        mean_dice = float(th.stack(dices).mean().item()) if dices else 0.0
         epoch_loss = running_loss / max(1, len(train_loader.dataset))
         print(f"Epoch {epoch}: loss={epoch_loss:.4f} val_dice={mean_dice:.4f}")
 
         # save best
         if mean_dice > best_dice:
             best_dice = mean_dice
-            torch.save({
+            th.save({
                 "model": args.model,
                 "state_dict": model.state_dict(),
                 "in_channels": in_ch,

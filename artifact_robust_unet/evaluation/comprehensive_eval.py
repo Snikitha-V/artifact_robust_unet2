@@ -58,6 +58,8 @@ def main():
     ap.add_argument("--limit_batches", type=int, default=10, help="Limit batches to speed up evaluation")
     ap.add_argument("--artifact_prob", type=float, default=0.8)
     ap.add_argument("--artifact_severity", type=float, default=0.3)
+    ap.add_argument("--tag", type=str, default=None, help="Optional tag/subfolder under runs/comprehensive to avoid overwriting (e.g., 'unet', 'attention_unet')")
+    ap.add_argument("--out", type=str, default=None, help="Optional explicit output JSON path; overrides --tag")
     args = ap.parse_args()
 
     cfg = yaml.safe_load(Path(args.config).read_text(encoding="utf-8"))
@@ -80,6 +82,12 @@ def main():
     art_loader = DataLoader(art_ds, batch_size=args.batch_size, shuffle=False, num_workers=args.num_workers, pin_memory=True)
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    # Peek checkpoint to infer model name for default output path
+    try:
+        _ckpt_meta = torch.load(Path(args.checkpoint), map_location="cpu")
+        model_name_for_out = str(_ckpt_meta.get("model", "model"))
+    except Exception:
+        model_name_for_out = "model"
     model = load_model(Path(args.checkpoint)).to(device)
 
     results = {
@@ -87,9 +95,18 @@ def main():
         "artifact": evaluate(model, art_loader, device, limit=args.limit_batches),
     }
 
-    out_dir = Path("runs/comprehensive")
-    out_dir.mkdir(parents=True, exist_ok=True)
-    out_path = out_dir / "results.json"
+    # Determine output path
+    if args.out:
+        out_path = Path(args.out)
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+    elif args.tag:
+        out_dir = Path("runs/comprehensive") / args.tag
+        out_dir.mkdir(parents=True, exist_ok=True)
+        out_path = out_dir / "results.json"
+    else:
+        out_dir = Path("runs/comprehensive") / model_name_for_out
+        out_dir.mkdir(parents=True, exist_ok=True)
+        out_path = out_dir / "results.json"
     out_path.write_text(json.dumps(results, indent=2), encoding="utf-8")
     print(json.dumps(results, indent=2))
     print({"saved": str(out_path)})
